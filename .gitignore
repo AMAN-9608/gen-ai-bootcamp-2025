@@ -1,0 +1,14 @@
+# Virtual environment
+genai_bootcamp/
+venv/
+*.pyc
+__pycache__/
+
+# Ignore VS Code settings
+.vscode/
+
+# Ignore environment files
+.env
+
+# windsurf rules
+.windsurfrules
