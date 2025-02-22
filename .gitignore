@@ -17,3 +17,6 @@ __pycache__/
 listening-comp/backend/questions/
 listening-comp/backend/transcripts/
 listening-comp/backend/vectorstore/
+
+# test files
+listening-comp/backend/test.py
