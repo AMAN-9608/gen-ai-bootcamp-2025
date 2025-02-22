@@ -8,8 +8,11 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.chat import BedrockChat, GeminiChat
+from backend.chat import GeminiChat
 from backend.get_transcript import YouTubeTranscriptDownloader
+from backend.structured_data import TranscriptStructurer
+from backend.vector_store import QuestionVectorStore
+from backend.question_generator import QuestionGenerator
 
 # Page config
 st.set_page_config(
@@ -23,6 +26,25 @@ if 'transcript' not in st.session_state:
     st.session_state.transcript = None
 if 'messages' not in st.session_state:
     st.session_state.messages = []
+if 'url' not in st.session_state:
+    st.session_state.url = None
+if 'transcript' not in st.session_state:
+    st.session_state.transcript = None
+if 'question_generator' not in st.session_state:
+    st.session_state.question_generator = QuestionGenerator()
+# if 'audio_generator' not in st.session_state:
+#     st.session_state.audio_generator = AudioGenerator()
+if 'current_question' not in st.session_state:
+    st.session_state.current_question = None
+if 'feedback' not in st.session_state:
+    st.session_state.feedback = None
+if 'current_practice_type' not in st.session_state:
+    st.session_state.current_practice_type = None
+if 'current_topic' not in st.session_state:
+    st.session_state.current_topic = None
+if 'current_audio' not in st.session_state:
+    st.session_state.current_audio = None
+
 
 def render_header():
     """Render the header section"""
@@ -169,8 +191,6 @@ def process_message(message: str):
             st.markdown(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
 
-
-
 def count_characters(text):
     """Count Japanese and total characters in text"""
     if not text:
@@ -195,6 +215,7 @@ def render_transcript_stage():
         "YouTube URL",
         placeholder="Enter a Japanese lesson YouTube URL"
     )
+    st.session_state.url = url
     
     # Download button and processing
     if url:
@@ -246,21 +267,41 @@ def render_structured_stage():
     """Render the structured data stage"""
     st.header("Structured Data Processing")
     
+    # Instantiate the TranscriptStructurer
+    structurer = TranscriptStructurer()
+    downloader = YouTubeTranscriptDownloader()
+
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("Dialogue Extraction")
-        # Placeholder for dialogue processing
-        st.info("Dialogue extraction will be implemented here")
-        
+        # Example of loading a transcript and extracting dialogue
+        if 'url' in st.session_state and st.session_state.url:
+            transcript = structurer.load_transcript(f"backend/transcripts/{downloader.extract_video_id(st.session_state.url)}.txt")  # Update the path as needed
+            dialogue = structurer.structure_transcript(transcript)[2]
+            conversation_tags = re.findall(r"Conversation:\s*\[(.*?)\]\s*Question", dialogue, re.DOTALL)  # Updated regex pattern
+            st.session_state.transcript = transcript
+            for tag in conversation_tags:
+                st.info(tag)
+            # st.info(dialogue)  # Display the extracted dialogue
+        else:
+            st.warning("No transcript found or could not load.")
+
     with col2:
         st.subheader("Data Structure")
-        # Placeholder for structured data view
-        st.info("Structured data view will be implemented here")
+        # Example of displaying structured data
+        if st.session_state.transcript:
+            structured_data = structurer.structure_transcript(transcript) 
+            st.json(structured_data)  # Display structured data in JSON format
+        else:
+            st.warning("No structured data available.")
 
 def render_rag_stage():
     """Render the RAG implementation stage"""
     st.header("RAG System")
+    
+    # Instantiate the QuestionVectorStore
+    vector_store = QuestionVectorStore()
     
     # Query input
     query = st.text_input(
@@ -272,22 +313,45 @@ def render_rag_stage():
     
     with col1:
         st.subheader("Retrieved Context")
-        # Placeholder for retrieved contexts
-        st.info("Retrieved contexts will appear here")
+        
+        if query:
+            # Retrieve relevant context using the vector store
+            retrieved_contexts = vector_store.search_similar_questions(2, query)  # Implement this method
+            
+            if retrieved_contexts:
+                for context in retrieved_contexts:
+                    st.info(context)  # Display each retrieved context
+            else:
+                st.warning("No relevant contexts found.")
         
     with col2:
         st.subheader("Generated Response")
-        # Placeholder for LLM response
-        st.info("Generated response will appear here")
+        conversations = ""
+        if query and retrieved_contexts:
+            # Generate a response using the LLM
+            for context in retrieved_contexts:
+                conversation = context.get('Conversation', '')
+                if conversation:  
+                    conversations += conversation
+
+            response = GeminiChat().generate_response(query+conversations)  # Implement this function
+            
+            if response:
+                st.info(response)  # Display the generated response
+            else:
+                st.warning("Failed to generate a response.")
+        else:
+            st.info("Enter a query to generate a response.")
 
 def render_interactive_stage():
     """Render the interactive learning stage"""
     st.header("Interactive Learning")
     
+    # question_generator = QuestionGenerator()
     # Practice type selection
     practice_type = st.selectbox(
         "Select Practice Type",
-        ["Dialogue Practice", "Vocabulary Quiz", "Listening Exercise"]
+        ["Dialogue Practice", "Phrase Matching"]
     )
     
     col1, col2 = st.columns([2, 1])
@@ -295,20 +359,101 @@ def render_interactive_stage():
     with col1:
         st.subheader("Practice Scenario")
         # Placeholder for scenario
-        st.info("Practice scenario will appear here")
+        # Topic selection
+        topics = {
+            "Dialogue Practice": ["Daily Conversation", "Shopping", "Restaurant", "Travel", "School/Work"],
+            "Phrase Matching": ["Announcements", "Instructions", "Weather Reports", "News Updates"]
+        }
         
-        # Placeholder for multiple choice
-        options = ["Option 1", "Option 2", "Option 3", "Option 4"]
-        selected = st.radio("Choose your answer:", options)
+        topic = st.selectbox(
+            "Select Topic",
+            topics[practice_type]
+        )
+
+        if st.button("Generate New Question"):
+            section_num = 2 if practice_type == "Dialogue Practice" else 3
+            new_question = st.session_state.question_generator.generate_similar_question(
+                section_num, topic
+            )
+            st.session_state.current_question = new_question
+            st.session_state.current_practice_type = practice_type
+            st.session_state.current_topic = topic
+            st.session_state.feedback = None
+
+        if st.session_state.current_question:
+            st.write("**Question:**")
+            st.write(st.session_state.current_question['Question'])
+
+            if practice_type == "Dialogue Practice":
+                st.write("**Introduction:**")
+                st.write(st.session_state.current_question['Introduction'])
+                st.write("**Conversation:**")
+                st.write(st.session_state.current_question['Conversation'])
+            else:
+                st.write("**Situation:**")
+                st.write(st.session_state.current_question['Situation'])
         
+            options = st.session_state.current_question['Options']
+            # If we have feedback, show which answers were correct/incorrect
+            if st.session_state.feedback:
+                correct = st.session_state.feedback.get('correct', False)
+                # correct_answer = st.session_state.feedback.get('correct_answer', 1) - 1
+                correct_answer = st.session_state.feedback.get('correct_answer', 1)
+                if isinstance(correct_answer, int):
+                    correct_answer -= 1
+                else:
+                    correct_answer = -1  # Handle missing/invalid correct_answer
+
+                selected_index = st.session_state.selected_answer - 1 if hasattr(st.session_state, 'selected_answer') else -1
+                
+                st.write("\n**Your Answer:**")
+                for i, option in enumerate(options):
+                    if i == correct_answer and i == selected_index:
+                        st.success(f"{i+1}. {option} ✓ (Correct!)")
+                    elif i == correct_answer:
+                        st.success(f"{i+1}. {option} ✓ (This was the correct answer)")
+                    elif i == selected_index:
+                        st.error(f"{i+1}. {option} ✗ (Your answer)")
+                    else:
+                        st.write(f"{i+1}. {option}")
+                
+                # Show explanation
+                st.write("\n**Explanation:**")
+                explanation = st.session_state.feedback.get('explanation', 'No feedback available')
+                if correct:
+                    st.success(explanation)
+                else:
+                    st.error(explanation)
+                
+                # Add button to try new question
+                if st.button("Try Another Question"):
+                    st.session_state.feedback = None
+                    st.rerun()
+            else:
+                # Display options as radio buttons when no feedback yet
+                selected = st.radio(
+                    "Choose your answer:",
+                    options,
+                    index=None,
+                    format_func=lambda x: f"{options.index(x) + 1}. {x}"
+                )
+                
+                # Submit answer button
+                if selected and st.button("Submit Answer"):
+                    selected_index = options.index(selected) + 1
+                    st.session_state.selected_answer = selected_index
+                    st.session_state.feedback = st.session_state.question_generator.get_feedback(
+                        st.session_state.current_question,
+                        selected_index
+                    )
+                    # st.write(st.session_state.feedback)
+                    st.rerun()
+
     with col2:
         st.subheader("Audio")
         # Placeholder for audio player
-        st.info("Audio will appear here")
+        st.info("Audio will appear here") 
         
-        st.subheader("Feedback")
-        # Placeholder for feedback
-        st.info("Feedback will appear here")
 
 def main():
     render_header()

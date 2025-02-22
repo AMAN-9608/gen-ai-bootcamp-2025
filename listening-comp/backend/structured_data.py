@@ -1,6 +1,6 @@
 from typing import Optional, Dict, List
 import os
-from chat import GeminiChat
+from .chat import GeminiChat
 from google.genai import types
 
 # Model ID

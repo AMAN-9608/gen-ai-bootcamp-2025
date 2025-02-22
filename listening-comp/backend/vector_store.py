@@ -222,4 +222,4 @@ if __name__ == "__main__":
     # Search for similar questions
     similar = store.search_similar_questions(2, "誕生日について質問", n_results=1)
 
-    # print(similar)
+    print(similar)
