@@ -12,3 +12,8 @@ __pycache__/
 
 # windsurf rules
 .windsurfrules
+
+# data files
+listening-comp/backend/questions/
+listening-comp/backend/transcripts/
+listening-comp/backend/vectorstore/
